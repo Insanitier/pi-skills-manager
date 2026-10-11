@@ -32,17 +32,6 @@ import {
 } from "./ui.js";
 import type { MessageTone, SkillEntry } from "./types.js";
 
-export class SingleLineText implements Component {
-	private readonly text: string;
-	private readonly ellipsis: string;
-	constructor(text: string, ellipsis = "...") {
-		this.text = text;
-		this.ellipsis = ellipsis;
-	}
-	render(width: number): string[] { return [truncateToWidth(inlineLine(this.text), width, this.ellipsis)]; }
-	invalidate(): void {}
-}
-
 export class ListLineText implements Component {
 	private readonly text: string;
 	private readonly selected: boolean;

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { PACKAGE_ID } from "./constants.js";
 import { detectExtensionInstallScope, projectSettingsPath, projectSettingsTrusted, userPiDir } from "./paths.js";
-import type { ExtensionInstallScope, OverlaySize, SettingsFile, SkillGroup } from "./types.js";
+import type { ExtensionInstallScope, OverlaySize, SettingsFile } from "./types.js";
 
 export function readJsonObject(path: string): SettingsFile {
 	if (!existsSync(path)) return { path, json: {}, exists: false };
@@ -81,38 +81,6 @@ function writeScopeForConfigKey(cwd: string, key: string): ExtensionInstallScope
 	if (packageConfigFromFile(user)?.[key] !== undefined) return "global";
 	const detected = detectExtensionInstallScope(cwd);
 	return detected === "project" && !projectSettingsTrusted(cwd) ? "global" : detected;
-}
-
-function asGroupArray(value: unknown): SkillGroup[] {
-	if (!Array.isArray(value)) return [];
-	return value
-		.map((item): SkillGroup | null => {
-			if (!item || typeof item !== "object") return null;
-			const record = item as Record<string, unknown>;
-			const name = typeof record.name === "string" ? record.name.trim() : "";
-			if (!name) return null;
-			const include = Array.isArray(record.include)
-				? (record.include as unknown[]).filter((v): v is string => typeof v === "string")
-				: undefined;
-			const exclude = Array.isArray(record.exclude)
-				? (record.exclude as unknown[]).filter((v): v is string => typeof v === "string")
-				: undefined;
-			return { name, include, exclude };
-		})
-		.filter((g): g is SkillGroup => g !== null);
-}
-
-export function settingGroups(cwd = process.cwd()): SkillGroup[] {
-	return asGroupArray(readVstackConfig(cwd)["groups"]);
-}
-
-export function settingActiveGroup(cwd = process.cwd()): string | undefined {
-	const value = readVstackConfig(cwd)["activeGroup"];
-	return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-export function setActiveGroup(cwd: string, name: string | undefined): void {
-	updatePackageConfig(cwd, { activeGroup: name ?? null }, "global");
 }
 
 export function updatePackageConfig(cwd: string, updates: Record<string, unknown>, scope?: ExtensionInstallScope): void {

@@ -6,7 +6,7 @@ export type SkillScope = "user" | "project" | "temporary";
 export type SkillOrigin = "package" | "top-level";
 export type SkillLocation = "project" | "global";
 export type MessageTone = "dim" | "success" | "error";
-export type Mode = "browse" | "create" | "preview" | "edit" | "rename" | "delete-confirm" | "generating" | "groups";
+export type Mode = "browse" | "create" | "preview" | "edit" | "rename" | "delete-confirm" | "generating";
 
 export interface VstackModalLock {
 	depth: number;
@@ -35,22 +35,9 @@ export interface SkillRegistry {
 	byName: Map<string, SkillEntry>;
 }
 
-export interface SkillGroup {
-	name: string;
-	include?: string[];
-	exclude?: string[];
-}
-
-export function skillMatchesGroup(skill: SkillEntry, pattern: string): boolean {
-	if (pattern === "*") return true;
-	return skill.name === pattern;
-}
-
-export function skillInGroup(skill: SkillEntry, group: SkillGroup): boolean {
-	const excludes = group.exclude ?? [];
-	if (excludes.some((pattern) => skillMatchesGroup(skill, pattern))) return false;
-	const includes = group.include ?? [];
-	return includes.some((pattern) => skillMatchesGroup(skill, pattern));
+export function sortSkillsEnabledFirst(skills: SkillEntry[]): SkillEntry[] {
+	// Stable sort: the incoming list already carries the default order, so this only lifts enabled skills above disabled ones.
+	return [...skills].sort((a, b) => Number(b.enabled) - Number(a.enabled));
 }
 
 export interface SkillCreationAnswers {

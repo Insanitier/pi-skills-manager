@@ -11,9 +11,9 @@ import { createSkillFromAnswers } from "./skills-manager/creation.js";
 import { showSkillsManager } from "./skills-manager/dialog.js";
 import { recordProjectTrust } from "./skills-manager/paths.js";
 import { deleteSkill, loadSkillRegistry } from "./skills-manager/registry.js";
-import { settingBoolean, settingGroups, setActiveGroup, updatePackageConfig } from "./skills-manager/settings.js";
+import { settingBoolean, updatePackageConfig } from "./skills-manager/settings.js";
 import { patchInteractiveModeStartupSkillsBlock, setStartupHideEnabled } from "./skills-manager/startup.js";
-import { applySkillGroup, setSkillEnabled } from "./skills-manager/toggle.js";
+import { setSkillEnabled } from "./skills-manager/toggle.js";
 import { EMPTY_REGISTRY, type SkillEntry, type SkillRegistry } from "./skills-manager/types.js";
 
 function errorMessage(error: unknown): string {
@@ -89,27 +89,6 @@ export default function skillsManager(pi: ExtensionAPI): void {
 			if (trimmed === "disable") {
 				updatePackageConfig(ctx.cwd, { enabled: false });
 				ctx.ui.notify("Skills Manager disabled. Run /reload to unload commands/hooks.", "info");
-				return;
-			}
-			if (trimmed.startsWith("group ")) {
-				const groupName = trimmed.slice("group ".length).trim();
-				if (!groupName) {
-					ctx.ui.notify("Usage: /skill group <group-name>", "info");
-					return;
-				}
-				const group = settingGroups(ctx.cwd).find((g) => g.name.toLowerCase() === groupName.toLowerCase());
-				if (!group) {
-					ctx.ui.notify(`Group not found: ${groupName}`, "warning");
-					return;
-				}
-				try {
-					await refreshRegistry(ctx.cwd);
-					const errors = await applySkillGroup(ctx.cwd, group, registry);
-					setActiveGroup(ctx.cwd, group.name);
-					ctx.ui.notify(errors.length > 0 ? `Group applied with ${errors.length} error(s): ${errors.join(", ")}` : `Group applied: ${group.name}. Run /reload to fully apply.`, "info");
-				} catch (error) {
-					ctx.ui.notify(`Failed to apply group: ${errorMessage(error)}`, "error");
-				}
 				return;
 			}
 			if (rawArgs) {

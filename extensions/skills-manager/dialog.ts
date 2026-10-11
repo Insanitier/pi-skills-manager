@@ -17,12 +17,11 @@ import {
 	PrefixedEditor,
 	ScrollableSkillPreview,
 	SearchInputLine,
-	SingleLineText,
 	SkillEditorView,
 } from "./components.js";
 import { DEFAULT_LIST_ROWS, DEFAULT_POPUP_MAX_HEIGHT, DEFAULT_POPUP_WIDTH } from "./constants.js";
 import { renameSkillEntry } from "./creation.js";
-import { applySkillGroup } from "./toggle.js";
+import { glyphs } from "./glyphs.js";
 import {
 	buildEditableSkillDocument,
 	normalizeSkillName,
@@ -32,7 +31,7 @@ import {
 } from "./format.js";
 import { normalizeListRows, responsiveBrowsePageSelection, responsiveBrowseWindow, sanitizePopupMaxHeight } from "./layout.js";
 import { isDeletableSkill, skillStorageTarget } from "./registry.js";
-import { settingActiveGroup, settingGroups, settingNumber, settingOverlaySize, settingString, setActiveGroup } from "./settings.js";
+import { settingNumber, settingOverlaySize, settingString } from "./settings.js";
 import {
 	acquireVstackModalLock,
 	getEditorTheme,
@@ -42,7 +41,6 @@ import {
 	scopeLabel,
 	skillEntityTitle,
 	skillKeyHints,
-	skillSectionTitle,
 	toneText,
 } from "./ui.js";
 import {
@@ -51,12 +49,11 @@ import {
 	type CreateTextStepId,
 	type Mode,
 	type OverlaySize,
-	skillInGroup,
 	type SkillEntry,
-	type SkillGroup,
 	type SkillLocation,
 	type SkillRegistry,
 	type SkillsManagerOptions,
+	sortSkillsEnabledFirst,
 } from "./types.js";
 
 class SkillsManagerDialog implements Focusable {
@@ -90,9 +87,6 @@ class SkillsManagerDialog implements Focusable {
 	private generationRunId = 0;
 	private readonly configuredListRows: number;
 	private readonly popupMaxHeight: OverlaySize;
-	private readonly groups: SkillGroup[];
-	private activeGroupName: string | undefined;
-	private selectedGroupIndex: number;
 
 	constructor(
 		ctx: ExtensionContext,
@@ -118,9 +112,6 @@ class SkillsManagerDialog implements Focusable {
 		this.createLocation = settingString("defaultCreateLocation", "project", ctx.cwd) === "global" ? "global" : "project";
 		this.configuredListRows = normalizeListRows(settingNumber("listRows", DEFAULT_LIST_ROWS, ctx.cwd));
 		this.popupMaxHeight = sanitizePopupMaxHeight(settingOverlaySize("popupMaxHeight", DEFAULT_POPUP_MAX_HEIGHT, ctx.cwd));
-		this.groups = settingGroups(ctx.cwd);
-		this.activeGroupName = settingActiveGroup(ctx.cwd);
-		this.selectedGroupIndex = this.activeGroupName ? Math.max(0, this.groups.findIndex((group) => group.name === this.activeGroupName)) + 1 : 0;
 		this.descriptionEditor = new Editor(tui, { borderColor: (text: string) => " ".repeat(text.length), selectList: getEditorTheme(theme).selectList });
 		this.descriptionEditor.onSubmit = (text: string) => { this.submittedDescriptionValue = text; void this.advanceCreate(); };
 		this.renameInput.onSubmit = (value) => { void this.submitRename(value); };
@@ -142,13 +133,8 @@ class SkillsManagerDialog implements Focusable {
 		return [skill.name, skill.description, scopeLabel(skill), skill.origin, skill.source, skill.path, skill.baseDir ?? ""].join(" ").toLowerCase();
 	}
 
-	private getActiveGroup(): SkillGroup | undefined {
-		return this.activeGroupName ? this.groups.find((group) => group.name === this.activeGroupName) : undefined;
-	}
-
 	private filterSkills(query: string): SkillEntry[] {
-		const group = this.getActiveGroup();
-		const candidates = group ? this.registry.allSkills.filter((skill) => skillInGroup(skill, group)) : this.registry.allSkills;
+		const candidates = this.registry.allSkills;
 		const trimmed = query.trim().toLowerCase();
 		if (!trimmed) return candidates;
 		const tokens = trimmed.split(/\s+/).filter(Boolean);
@@ -156,9 +142,7 @@ class SkillsManagerDialog implements Focusable {
 	}
 
 	private orderBrowseSkills(skills: SkillEntry[]): SkillEntry[] {
-		const own = skills.filter((skill) => isDeletableSkill(skill));
-		const library = skills.filter((skill) => !isDeletableSkill(skill));
-		return [...own, ...library];
+		return sortSkillsEnabledFirst(skills);
 	}
 
 	private refreshBrowseList(preferredPath?: string): void {
@@ -179,40 +163,6 @@ class SkillsManagerDialog implements Focusable {
 	private exitToBrowse(preferredPath?: string): void {
 		this.mode = "browse"; this.createError = undefined; this.renameError = undefined; this.previewSkillPath = undefined; this.preview = undefined; this.editorView = undefined; this.deleteSkillPath = undefined;
 		this.browseInput.setValue(this.browseQuery); this.refreshBrowseList(preferredPath); this.syncFocus(); this.requestRender();
-	}
-	private enterGroupMode(): void {
-		this.mode = "groups";
-		this.selectedGroupIndex = this.activeGroupName ? Math.max(0, this.groups.findIndex((group) => group.name === this.activeGroupName)) + 1 : 0;
-		this.syncFocus(); this.requestRender();
-	}
-	private exitGroupMode(): void {
-		this.mode = "browse"; this.refreshBrowseList(); this.syncFocus(); this.requestRender();
-	}
-	private async applySelectedGroup(): Promise<void> {
-		if (this.selectedGroupIndex === 0) {
-			this.clearActiveGroup();
-			return;
-		}
-		const group = this.groups[this.selectedGroupIndex - 1];
-		if (!group) return;
-		this.ctx.ui.notify(`Applying group ${group.name}...`, "info");
-		this.requestRender();
-		const errors = await applySkillGroup(this.ctx.cwd, group, this.registry);
-		setActiveGroup(this.ctx.cwd, group.name);
-		this.activeGroupName = group.name;
-		await this.refreshRegistry();
-		this.exitGroupMode();
-		if (errors.length > 0) {
-			this.ctx.ui.notify(`Group applied with ${errors.length} error(s): ${errors.join(", ")}`, "warning");
-		} else {
-			this.ctx.ui.notify(`Group applied: ${group.name}. Run /reload to fully apply.`, "info");
-		}
-	}
-	private clearActiveGroup(): void {
-		setActiveGroup(this.ctx.cwd, undefined);
-		this.activeGroupName = undefined;
-		this.exitGroupMode();
-		this.ctx.ui.notify("Group filter cleared", "info");
 	}
 	private openPreview(skill: SkillEntry): void { this.previewSkillPath = skill.path; this.preview = new ScrollableSkillPreview(skill, this.theme, () => this.tui.terminal.rows); this.mode = "preview"; this.syncFocus(); this.requestRender(); }
 	private openDeleteConfirm(skill: SkillEntry, returnMode: "browse" | "preview"): void { this.deleteSkillPath = skill.path; this.deleteReturnMode = returnMode; this.mode = "delete-confirm"; this.syncFocus(); this.requestRender(); }
@@ -338,68 +288,44 @@ class SkillsManagerDialog implements Focusable {
 		if (this.mode === "rename") return this.renderRenameDialog(width);
 		if (this.mode === "delete-confirm") return this.renderDeleteDialog(width);
 		if (this.mode === "generating") return this.renderGeneratingDialog(width);
-		if (this.mode === "groups") return this.renderGroups(width);
 		return this.mode === "create" ? this.renderCreate(width) : this.renderBrowse(width);
 	}
 
 	private renderBrowse(width: number): string[] {
 		const innerWidth = Math.max(1, width - 4);
 		const root = new Container();
+		const glyph = glyphs();
 		const enabledCount = this.registry.allSkills.filter((skill) => skill.enabled).length;
 		const totalCount = this.registry.allSkills.length;
 		root.addChild(new SearchInputLine(this.browseInput, this.theme));
 		root.addChild(new Spacer(1));
 		const list = new Container();
-		const entries: Array<{ kind: "create" } | { kind: "header"; label: string } | { kind: "skill"; skill: SkillEntry }> = [{ kind: "create" }];
-		const own = this.filteredSkills.filter((skill) => isDeletableSkill(skill));
-		const library = this.filteredSkills.filter((skill) => !isDeletableSkill(skill));
-		if (own.length > 0) entries.push({ kind: "header", label: "Your Skills" }, ...own.map((skill) => ({ kind: "skill" as const, skill })));
-		if (library.length > 0) entries.push({ kind: "header", label: "Library Skills" }, ...library.map((skill) => ({ kind: "skill" as const, skill })));
-		let selectedDisplayIndex = 0;
-		let selectableIndex = 0;
-		for (let i = 0; i < entries.length; i++) {
-			const entry = entries[i]!;
-			if (entry.kind === "create" || entry.kind === "skill") {
-				if (selectableIndex === this.selectedIndex) { selectedDisplayIndex = i; break; }
-				selectableIndex += 1;
-			}
-		}
-		const { startIndex, endIndex } = responsiveBrowseWindow(this.configuredListRows, this.tui.terminal.rows, entries.length, selectedDisplayIndex, this.popupMaxHeight);
-		selectableIndex = 0;
+		const entries: Array<{ kind: "create" } | { kind: "skill"; skill: SkillEntry }> = [{ kind: "create" }, ...this.filteredSkills.map((skill) => ({ kind: "skill" as const, skill }))];
+		const { startIndex, endIndex } = responsiveBrowseWindow(this.configuredListRows, this.tui.terminal.rows, entries.length, this.selectedIndex, this.popupMaxHeight);
 		const ellipsis = this.theme.fg("dim", "...");
-		for (let i = 0; i < endIndex; i++) {
+		for (let i = startIndex; i < endIndex; i++) {
 			const entry = entries[i]!;
-			const isSelectable = entry.kind === "create" || entry.kind === "skill";
-			const isSelected = isSelectable && selectableIndex === this.selectedIndex;
-			if (i >= startIndex) {
-				if (entry.kind === "header") {
-					list.addChild(new Spacer(1));
-					list.addChild(new SingleLineText(skillSectionTitle(this.theme, entry.label), ellipsis));
-				} else if (entry.kind === "create") {
-					const prefix = " ";
-					const label = "Create new skill";
-					list.addChild(new ListLineText(`${prefix}${label}${this.theme.fg("dim", " — generate and save a new skill")}`, isSelected, this.theme, ellipsis));
-				} else {
-					const skill = entry.skill;
-					const prefix = " ";
-					const name = skill.enabled ? skill.name : this.theme.fg("muted", skill.name);
-					const status = skill.enabled ? "" : this.theme.fg("warning", " [disabled]");
-					const scope = this.theme.fg("muted", ` [${scopeLabel(skill)}]`);
-					const source = packageLabel(skill) ? this.theme.fg("muted", ` [${packageLabel(skill)}]`) : "";
-					const description = this.theme.fg("dim", ` — ${skill.description}`);
-					list.addChild(new ListLineText(`${prefix}${name}${status}${scope}${source}${description}`, isSelected, this.theme, ellipsis));
-				}
+			const isSelected = i === this.selectedIndex;
+			if (entry.kind === "create") {
+				list.addChild(new ListLineText(` Create new skill${this.theme.fg("dim", " — generate and save a new skill")}`, isSelected, this.theme, ellipsis));
+			} else {
+				const skill = entry.skill;
+				const mark = skill.enabled ? this.theme.fg("success", `(${glyph.ok})`) : this.theme.fg("muted", `(${glyph.fail})`);
+				const name = skill.enabled ? skill.name : this.theme.fg("muted", skill.name);
+				const scope = this.theme.fg("muted", ` [${scopeLabel(skill)}]`);
+				const source = packageLabel(skill) ? this.theme.fg("muted", ` [${packageLabel(skill)}]`) : "";
+				const description = this.theme.fg("dim", ` — ${skill.description}`);
+				list.addChild(new ListLineText(` ${mark} ${name}${scope}${source}${description}`, isSelected, this.theme, ellipsis));
 			}
-			if (isSelectable) selectableIndex += 1;
 		}
-		if (entries.length === 1 && this.filteredSkills.length === 0) list.addChild(new Text(this.theme.fg("dim", "No skills match your search."), 1, 0));
+		if (this.filteredSkills.length === 0) list.addChild(new Text(this.theme.fg("dim", "No skills match your search."), 1, 0));
 		root.addChild(list);
 		root.addChild(new Spacer(1));
 		const selected = this.getSelectedSkill();
-		const actions: Array<[string, string]> = [["-/=", "page"], ["alt+g", "groups"]];
+		const actions: Array<[string, string]> = [["-/=", "page"]];
 		if (selected) { actions.push(["tab", "preview"], ["ctrl+x", "enable/disable"]); if (!this.browseQuery && isDeletableSkill(selected)) actions.push(["backspace", "delete"]); }
 		root.addChild(new Text(skillKeyHints(this.theme, actions), 1, 0));
-		const right = this.activeGroupName ? `[${this.activeGroupName}] ${enabledCount}/${totalCount}` : `${enabledCount}/${totalCount} enabled`;
+		const right = `${enabledCount}/${totalCount} enabled`;
 		return renderFrame(this.theme, width, root.render(innerWidth), undefined, "Skills Manager", right);
 	}
 
@@ -443,36 +369,12 @@ class SkillsManagerDialog implements Focusable {
 		const modelLabel = this.ctx.model?.id ?? "fallback template";
 		return renderCenteredDialog(this.theme, width, [skillEntityTitle(this.theme, "Generating skill"), "", this.theme.fg("dim", `Using ${modelLabel} to draft SKILL.md.`), this.theme.fg("dim", "The preview opens when generation finishes.")]);
 	}
-	private renderGroups(width: number): string[] {
-		const innerWidth = Math.max(1, width - 4);
-		const root = new Container();
-		root.addChild(new Text(skillEntityTitle(this.theme, "Skill groups"), 1, 0));
-		root.addChild(new Spacer(1));
-		const list = new Container();
-		const entries: Array<SkillGroup | null> = [null, ...this.groups];
-		for (let i = 0; i < entries.length; i++) {
-			const group = entries[i];
-			const isAll = i === 0;
-			const isSelected = i === this.selectedGroupIndex;
-			const isActive = isAll ? !this.activeGroupName : !!group && this.activeGroupName === group.name;
-			const count = isAll ? this.registry.allSkills.length : group ? this.registry.allSkills.filter((skill) => skillInGroup(skill, group)).length : 0;
-			const marker = isActive ? this.theme.fg("success", "● ") : this.theme.fg("dim", "○ ");
-			const label = isAll ? "All skills" : group?.name ?? "";
-			const desc = isAll ? "clear group filter" : `${count} skill${count === 1 ? "" : "s"}`;
-			list.addChild(new ListLineText(`${marker}${label}${this.theme.fg("dim", ` — ${desc}`)}`, isSelected, this.theme));
-		}
-		root.addChild(list);
-		root.addChild(new Spacer(1));
-		root.addChild(new Text(skillKeyHints(this.theme, [["enter", "apply"], ["c", "clear active"], ["escape", "back"]]), 1, 0));
-		return renderFrame(this.theme, width, root.render(innerWidth));
-	}
 
 	handleInput(data: string): void {
 		if (this.mode === "generating") { if (matchesKey(data, Key.escape)) { this.generationAbortController?.abort(); this.generationAbortController = undefined; this.generationRunId += 1; this.mode = "create"; this.syncFocus(); this.requestRender(); } return; }
 		if (this.mode === "rename") { if (matchesKey(data, Key.escape)) { this.closeRenameDialog(); return; } if (this.renameError) this.renameError = undefined; this.renameInput.handleInput(data); return; }
 		if (this.mode === "delete-confirm") { if (matchesKey(data, Key.escape)) { this.mode = this.deleteReturnMode === "preview" ? "preview" : "browse"; this.syncFocus(); return; } if (matchesKey(data, Key.enter)) void this.confirmDelete(); return; }
 		if (this.mode === "edit") { this.editorView?.handleInput(data); return; }
-		if (this.mode === "groups") { this.handleGroupsInput(data); return; }
 		if (this.mode === "preview") {
 			const skill = this.getCurrentSkill();
 			if (!skill) { this.exitToBrowse(); return; }
@@ -496,7 +398,6 @@ class SkillsManagerDialog implements Focusable {
 		if (matchesKey(data, Key.tab)) { const skill = this.getSelectedSkill(); if (skill) this.openPreview(skill); return; }
 		if (matchesKey(data, Key.alt("x")) || matchesKey(data, Key.ctrl("x"))) { const skill = this.getSelectedSkill(); if (skill) void this.toggleSkill(skill); return; }
 		if (matchesKey(data, Key.backspace) && !this.browseInput.getValue()) { const skill = this.getSelectedSkill(); if (skill && isDeletableSkill(skill)) this.openDeleteConfirm(skill, "browse"); return; }
-		if (matchesKey(data, Key.alt("g"))) { this.enterGroupMode(); return; }
 		if (matchesKey(data, Key.escape)) { if (this.browseInput.getValue()) { this.browseQuery = ""; this.browseInput.setValue(""); this.refreshBrowseList(); } else this.done(null); return; }
 		this.browseInput.handleInput(data); this.browseQuery = this.browseInput.getValue(); this.refreshBrowseList();
 	}
@@ -510,13 +411,6 @@ class SkillsManagerDialog implements Focusable {
 		if (step.id === "name") { this.browseInput.handleInput(data); this.createValues.name = this.browseInput.getValue(); return; }
 		if (step.id === "location") { if (matchesKey(data, Key.up)) this.createLocation = this.createLocation === "project" ? "global" : "project"; else if (matchesKey(data, Key.down)) this.createLocation = this.createLocation === "project" ? "global" : "project"; return; }
 		this.descriptionEditor.handleInput(data); if (!matchesKey(data, Key.enter)) this.createValues.description = this.descriptionEditor.getText();
-	}
-	private handleGroupsInput(data: string): void {
-		if (matchesKey(data, Key.escape)) { this.exitGroupMode(); return; }
-		if (matchesKey(data, Key.up)) { this.selectedGroupIndex = this.selectedGroupIndex === 0 ? this.groups.length : this.selectedGroupIndex - 1; return; }
-		if (matchesKey(data, Key.down)) { this.selectedGroupIndex = this.selectedGroupIndex === this.groups.length ? 0 : this.selectedGroupIndex + 1; return; }
-		if (matchesKey(data, "c")) { this.clearActiveGroup(); return; }
-		if (matchesKey(data, Key.enter)) { void this.applySelectedGroup(); return; }
 	}
 }
 

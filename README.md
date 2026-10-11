@@ -36,7 +36,6 @@ Restart Pi after installation.
 | Command | Action |
 | --- | --- |
 | `/skill` | Open the manager. |
-| `/skill group <name>` | Apply a preset group and reload. |
 | `/skill disable` | Disable the feature toggle. Run `/reload` to unload. |
 | `/skill:enable` | Recovery command when disabled. |
 | `/skill:<name>` | Native Pi skill invocation (handled by Pi). |
@@ -59,37 +58,6 @@ Project settings in `.pi/settings.json` apply only after Pi marks the workspace 
 | Popup width | Number of columns or `82%`-style percentage. |
 | Popup max height | Number of rows or percentage. |
 | Visible list rows | Maximum rows shown before scrolling; short terminals shrink this so controls remain visible. |
-| Skill groups | Edited directly in settings (see below). |
-
-## Skill groups
-
-Groups are defined in your global settings under `vstack.extensionManager.config.@vanillagreen/pi-skills-manager`. Selecting a group filters the manager and bulk-enables the matching skills.
-
-```json
-{
-  "vstack": {
-    "extensionManager": {
-      "config": {
-        "@vanillagreen/pi-skills-manager": {
-          "groups": [
-            { "name": "review", "include": ["react-review", "security-review"] },
-            { "name": "default", "include": ["*"] }
-          ],
-          "activeGroup": "review"
-        }
-      }
-    }
-  }
-}
-```
-
-- `include`: skill names to enable. Use `"*"` to match all.
-- `exclude`: optional names to force disable even if included.
-- `activeGroup`: the currently selected group.
-
-In the manager, press `alt+g` to open the group picker, `enter` to apply, `c` to clear the active group. Run `/reload` after applying a group.
-
-Glyph style: each package exposes `glyphStyle` (`unicode` default, `ascii` for terminal-safe chrome). `@vanillagreen/pi-tool-renderer.globalGlyphStyleOverride=ascii` forces ASCII chrome across vstack Pi extensions while leaving tool/model/user content unchanged.
 
 ## Notes
 

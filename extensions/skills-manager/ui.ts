@@ -38,10 +38,6 @@ export function skillEntityTitle(theme: Theme, label: string): string {
 	return theme.fg("text", theme.bold(label));
 }
 
-export function skillSectionTitle(theme: Theme, label: string): string {
-	return theme.fg("muted", theme.bold(label));
-}
-
 export function skillSelectedLine(theme: Theme, line: string, width: number): string {
 	return theme.bg("selectedBg", padAnsi(line, width));
 }

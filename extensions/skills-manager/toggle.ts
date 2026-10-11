@@ -1,7 +1,7 @@
 import { relative, dirname } from "node:path";
 import { getAgentDir, SettingsManager, type PackageSource } from "@earendil-works/pi-coding-agent";
 import { findProjectPiDir, projectSettingsTrusted } from "./paths.js";
-import { skillInGroup, type SkillEntry, type SkillGroup, type SkillRegistry } from "./types.js";
+import type { SkillEntry } from "./types.js";
 
 function updatePatterns(current: string[], pattern: string, enabled: boolean): string[] {
 	const updated = current.filter((entry) => {
@@ -24,21 +24,6 @@ function getPackagePattern(skill: SkillEntry): string {
 
 function hasPackageFilters(pkg: Exclude<PackageSource, string>): boolean {
 	return pkg.extensions !== undefined || pkg.skills !== undefined || pkg.prompts !== undefined || pkg.themes !== undefined;
-}
-
-export async function applySkillGroup(cwd: string, group: SkillGroup, registry: SkillRegistry): Promise<string[]> {
-	const errors: string[] = [];
-	for (const skill of registry.allSkills) {
-		if (skill.scope === "temporary") continue;
-		const target = skillInGroup(skill, group);
-		if (skill.enabled === target) continue;
-		try {
-			await setSkillEnabled(cwd, skill, target);
-		} catch {
-			errors.push(skill.name);
-		}
-	}
-	return errors;
 }
 
 export async function setSkillEnabled(cwd: string, skill: SkillEntry, enabled: boolean): Promise<void> {
