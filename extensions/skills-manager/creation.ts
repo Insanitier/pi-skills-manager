@@ -102,10 +102,12 @@ async function saveCreatedSkill(ctx: ExtensionContext, answers: SkillCreationAns
 		content: parsed.content,
 		frontmatter: parsed.frontmatter,
 		scope: answers.location === "global" ? "user" : "project",
+		realScope: answers.location === "global" ? "user" : "project",
 		origin: "top-level",
 		source: "auto",
 		baseDir: targetDir,
 		enabled: true,
+		projectOverride: false,
 	};
 }
 

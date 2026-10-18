@@ -108,7 +108,7 @@ export default function skillsManager(pi: ExtensionAPI): void {
 			const selection = await showSkillsManager(ctx, registry, {
 				onCreate: async (answers, signal) => await createSkillFromAnswers(ctx, answers, { thinkingLevel: pi.getThinkingLevel(), signal }),
 				onDelete: async (skill) => await deleteSkill(ctx, skill),
-				onToggle: async (skill, enabled) => await setSkillEnabled(ctx.cwd, skill, enabled),
+				onToggle: async (skill, enabled, scope) => await setSkillEnabled(ctx.cwd, skill, enabled, scope),
 				onRefresh: async () => await refreshRegistry(ctx.cwd),
 			});
 			if (selection) insertNativeSkillCommand(ctx, selection);

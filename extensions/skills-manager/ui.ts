@@ -118,7 +118,7 @@ export function getEditorTheme(theme: Theme) {
 }
 
 export function scopeLabel(skill: SkillEntry): string {
-	return skill.scope === "project" ? "project" : skill.scope === "user" ? "global" : "temporary";
+	return skill.realScope === "project" ? "project" : skill.realScope === "user" ? "global" : "temporary";
 }
 
 export function packageLabel(skill: SkillEntry): string | undefined {

@@ -1,5 +1,6 @@
 import { readFileSync, rmSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
 	DefaultPackageManager,
 	getAgentDir,
@@ -9,12 +10,22 @@ import {
 	type ExtensionContext,
 	type ResolvedResource,
 } from "@earendil-works/pi-coding-agent";
-import { projectSettingsTrusted } from "./paths.js";
+import { findProjectPiDir, projectSettingsTrusted } from "./paths.js";
+import { globalDefaultEnabled, isWithinPath, projectClaimsPath, userGlobalBaseDir } from "./overrides.js";
 import type { SkillEntry, SkillOrigin, SkillRegistry, SkillScope } from "./types.js";
+
+interface RegistryContext {
+	projectBaseDir: string;
+	projectRoots: string[];
+	projectSkillEntries: string[];
+	globalSkillEntries: string[];
+	agentDir: string;
+	userAgentsDir: string;
+}
 
 function compareSkills(a: SkillEntry, b: SkillEntry): number {
 	const scopeRank = (scope: SkillScope) => scope === "project" ? 0 : scope === "user" ? 1 : 2;
-	const rank = scopeRank(a.scope) - scopeRank(b.scope);
+	const rank = scopeRank(a.realScope) - scopeRank(b.realScope);
 	if (rank !== 0) return rank;
 	if (a.origin !== b.origin) return a.origin === "top-level" ? -1 : 1;
 	return a.name.localeCompare(b.name);
@@ -38,20 +49,46 @@ function parseSkillFile(path: string): Pick<SkillEntry, "name" | "description" |
 	}
 }
 
-function toSkillEntry(resource: ResolvedResource): SkillEntry | null {
+function projectResourceRoots(cwd: string): string[] {
+	const userAgents = resolve(homedir(), ".agents");
+	const roots = [resolve(findProjectPiDir(cwd))];
+	let dir = resolve(cwd);
+	while (true) {
+		const agents = resolve(dir, ".agents");
+		if (agents !== userAgents) roots.push(agents);
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return roots;
+}
+
+function toSkillEntry(resource: ResolvedResource, ctx: RegistryContext): SkillEntry | null {
 	const parsed = parseSkillFile(resource.path);
 	if (!parsed) return null;
+	const declaredScope = resource.metadata.scope as SkillScope;
+	const origin = resource.metadata.origin as SkillOrigin;
+	const target = resolve(resource.path);
+	const ownedByProject = ctx.projectRoots.some((root) => isWithinPath(target, root));
+	// A project settings entry that resolves to a file outside the project's own
+	// resource dirs is an override claiming a globally-defined skill.
+	const claimed = origin === "top-level" && !ownedByProject && projectClaimsPath(ctx.projectSkillEntries, target, ctx.projectBaseDir);
+	const realScope: SkillScope = declaredScope === "temporary" ? "temporary" : claimed ? "user" : declaredScope;
+	const projectOverride = claimed
+		&& resource.enabled !== globalDefaultEnabled(ctx.globalSkillEntries, relative(userGlobalBaseDir(target, ctx.agentDir, ctx.userAgentsDir), target));
 	return {
 		name: parsed.name,
 		description: parsed.description,
 		content: parsed.content,
 		frontmatter: parsed.frontmatter,
 		path: resource.path,
-		scope: resource.metadata.scope as SkillScope,
-		origin: resource.metadata.origin as SkillOrigin,
+		scope: declaredScope,
+		realScope,
+		origin,
 		source: resource.metadata.source,
 		baseDir: resource.metadata.baseDir,
 		enabled: resource.enabled,
+		projectOverride,
 	};
 }
 
@@ -70,7 +107,15 @@ export async function loadSkillRegistry(cwd: string): Promise<SkillRegistry> {
 	const settingsManager = SettingsManager.create(cwd, getAgentDir(), { projectTrusted: projectSettingsTrusted(cwd) });
 	const packageManager = new DefaultPackageManager({ cwd, agentDir: getAgentDir(), settingsManager });
 	const resolved = await packageManager.resolve();
-	const allSkills = dedupeByPath(resolved.skills.map(toSkillEntry).filter((entry): entry is SkillEntry => entry !== null)).sort(compareSkills);
+	const ctx: RegistryContext = {
+		projectBaseDir: findProjectPiDir(cwd),
+		projectRoots: projectResourceRoots(cwd),
+		projectSkillEntries: settingsManager.getProjectSettings().skills ?? [],
+		globalSkillEntries: settingsManager.getGlobalSettings().skills ?? [],
+		agentDir: getAgentDir(),
+		userAgentsDir: join(homedir(), ".agents"),
+	};
+	const allSkills = dedupeByPath(resolved.skills.map((resource) => toSkillEntry(resource, ctx)).filter((entry): entry is SkillEntry => entry !== null)).sort(compareSkills);
 	const byName = new Map<string, SkillEntry>();
 	for (const skill of allSkills) {
 		if (!skill.enabled) continue;
@@ -81,7 +126,7 @@ export async function loadSkillRegistry(cwd: string): Promise<SkillRegistry> {
 }
 
 export function isDeletableSkill(skill: SkillEntry): boolean {
-	return skill.origin === "top-level" && (skill.scope === "project" || skill.scope === "user");
+	return skill.origin === "top-level" && (skill.realScope === "project" || skill.realScope === "user");
 }
 
 export function skillStorageTarget(skill: SkillEntry): string {

@@ -12,6 +12,7 @@ Dedicated skills manager. Browse, preview, create, edit, rename, delete, and tog
 - tab previews frontmatter and rendered content.
 - Create new project or global skills using the current model. Falls back to a deterministic template when the model is unavailable.
 - Edit, rename, and delete your own top-level skills. Package skills stay preview/toggle/insert only.
+- Global defaults with per-project overrides: press `alt+s` in browse to switch the toggle scope, then `ctrl+x` applies it at the selected scope.
 - Hides Pi's startup `[Skills]` block so skill discovery lives in the manager.
 
 ## Install
@@ -43,6 +44,17 @@ Restart Pi after installation.
 Each view (browse, preview, edit) documents its own keys in the footer.
 
 Create: name (normalized to a lowercase slug), trigger-focused description, visibility (project `.pi/skills/<name>/SKILL.md` or global `~/.pi/agent/skills/<name>/SKILL.md`).
+
+## Scope: global defaults and project overrides
+
+A skill's state has two layers:
+
+- **Global default** — stored in the skill's own scope: user skills in `~/.pi/agent/settings.json`, project skills in the project `.pi/settings.json`.
+- **Project override** — a per-project deviation for a globally-defined skill, stored in the project `.pi/settings.json`.
+
+In browse, press `alt+s` to switch the toggle scope between `project` (default) and `global`; `ctrl+x` then applies at the selected scope. Rows show the real origin (`[global]`/`[project]`/`[pkg:...]`) and mark a row `[override]` when this project deviates from the global default. Setting an override back to the global default clears it, so no redundant entries are left behind.
+
+Overrides use Pi's native resource settings (a project `skills` entry claiming the skill's path), so they keep working without this extension. Project skills only exist in the project layer, and package skills are not overridable in this version.
 
 ## Settings
 

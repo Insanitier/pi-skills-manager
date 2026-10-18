@@ -30,7 +30,7 @@ import {
 	toneText,
 	renderFrame,
 } from "./ui.js";
-import type { MessageTone, SkillEntry } from "./types.js";
+import type { EditScope, MessageTone, SkillEntry } from "./types.js";
 
 export class ListLineText implements Component {
 	private readonly text: string;
@@ -89,20 +89,24 @@ export class ScrollableSkillPreview implements Component {
 	private skill: SkillEntry;
 	private readonly theme: Theme;
 	private readonly getTerminalRows: () => number;
-	constructor(skill: SkillEntry, theme: Theme, getTerminalRows: () => number) {
+	private editScope: EditScope;
+	constructor(skill: SkillEntry, theme: Theme, getTerminalRows: () => number, editScope: EditScope) {
 		this.skill = skill;
 		this.theme = theme;
 		this.getTerminalRows = getTerminalRows;
+		this.editScope = editScope;
 	}
 	setSkill(skill: SkillEntry): void { this.skill = skill; this.scrollOffset = 0; this.lastContentLines = []; }
+	setScope(scope: EditScope): void { this.editScope = scope; this.lastContentLines = []; }
 	invalidate(): void { this.lastContentLines = []; }
 	private maxHeight(): number { return Math.max(10, Math.floor(this.getTerminalRows() * 0.78)); }
 	private buildContentLines(innerWidth: number): string[] {
 		const content = new Container();
 		const status = this.skill.enabled ? this.theme.fg("success", "enabled") : this.theme.fg("warning", "disabled");
+		const override = this.skill.projectOverride ? this.theme.fg("accent", ` ${glyphs().bullet.trim()} project override`) : "";
 		const source = packageLabel(this.skill) ? `${packageLabel(this.skill)}` : this.skill.path;
 		content.addChild(new Text(skillEntityTitle(this.theme, this.skill.name), 0, 0));
-		content.addChild(new Text(`${this.theme.fg("muted", scopeLabel(this.skill))}${this.theme.fg("dim", ` ${glyphs().bullet.trim()} `)}${this.theme.fg("muted", source)}${this.theme.fg("dim", ` ${glyphs().bullet.trim()} `)}${status}`, 0, 0));
+		content.addChild(new Text(`${this.theme.fg("muted", scopeLabel(this.skill))}${this.theme.fg("dim", ` ${glyphs().bullet.trim()} `)}${this.theme.fg("muted", source)}${this.theme.fg("dim", ` ${glyphs().bullet.trim()} `)}${status}${override}`, 0, 0));
 		content.addChild(new Spacer(1));
 		content.addChild(new Text(this.theme.fg("muted", this.theme.bold("Description")), 0, 0));
 		content.addChild(new Text(this.skill.description, 0, 0));
@@ -122,7 +126,7 @@ export class ScrollableSkillPreview implements Component {
 		const maxScroll = Math.max(0, totalLines - visibleHeight);
 		const scroll = maxScroll > 0 ? this.theme.fg("dim", ` ${glyphs().bullet.trim()} ${this.scrollOffset + 1}-${Math.min(totalLines, this.scrollOffset + visibleHeight)}/${totalLines}`) : "";
 		const hints: Array<[string, string]> = [["-/=", "page"]];
-		hints.push(["ctrl+x", "enable/disable"]);
+		hints.push(["alt+s", `scope: ${this.editScope}`], ["ctrl+x", `toggle (${this.editScope})`]);
 		if (isDeletableSkill(this.skill)) hints.push(["alt+e", "edit"], ["alt+r", "rename"], ["backspace", "delete"]);
 		return truncateToWidth(`${skillKeyHints(this.theme, hints)}${scroll}`, innerWidth, this.theme.fg("dim", "..."));
 	}

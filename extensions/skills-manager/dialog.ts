@@ -22,6 +22,7 @@ import {
 import { DEFAULT_LIST_ROWS, DEFAULT_POPUP_MAX_HEIGHT, DEFAULT_POPUP_WIDTH } from "./constants.js";
 import { renameSkillEntry } from "./creation.js";
 import { glyphs } from "./glyphs.js";
+import { toggleScope } from "./overrides.js";
 import {
 	buildEditableSkillDocument,
 	normalizeSkillName,
@@ -47,6 +48,7 @@ import {
 	CREATE_STEPS,
 	type CreateStep,
 	type CreateTextStepId,
+	type EditScope,
 	type Mode,
 	type OverlaySize,
 	type SkillEntry,
@@ -64,6 +66,7 @@ class SkillsManagerDialog implements Focusable {
 	private readonly options: SkillsManagerOptions;
 	private readonly requestRender: () => void;
 	private mode: Mode = "browse";
+	private editScope: EditScope = "project";
 	private _focused = false;
 	private registry: SkillRegistry;
 	private filteredSkills: SkillEntry[] = [];
@@ -164,7 +167,7 @@ class SkillsManagerDialog implements Focusable {
 		this.mode = "browse"; this.createError = undefined; this.renameError = undefined; this.previewSkillPath = undefined; this.preview = undefined; this.editorView = undefined; this.deleteSkillPath = undefined;
 		this.browseInput.setValue(this.browseQuery); this.refreshBrowseList(preferredPath); this.syncFocus(); this.requestRender();
 	}
-	private openPreview(skill: SkillEntry): void { this.previewSkillPath = skill.path; this.preview = new ScrollableSkillPreview(skill, this.theme, () => this.tui.terminal.rows); this.mode = "preview"; this.syncFocus(); this.requestRender(); }
+	private openPreview(skill: SkillEntry): void { this.previewSkillPath = skill.path; this.preview = new ScrollableSkillPreview(skill, this.theme, () => this.tui.terminal.rows, this.editScope); this.mode = "preview"; this.syncFocus(); this.requestRender(); }
 	private openDeleteConfirm(skill: SkillEntry, returnMode: "browse" | "preview"): void { this.deleteSkillPath = skill.path; this.deleteReturnMode = returnMode; this.mode = "delete-confirm"; this.syncFocus(); this.requestRender(); }
 	private openEditor(): void {
 		const skill = this.getCurrentSkill();
@@ -235,7 +238,7 @@ class SkillsManagerDialog implements Focusable {
 	private async toggleSkill(skill: SkillEntry): Promise<void> {
 		const nextEnabled = !skill.enabled;
 		try {
-			await this.options.onToggle(skill, nextEnabled);
+			await this.options.onToggle(skill, nextEnabled, this.editScope);
 			await this.refreshRegistry(skill.path);
 			this.ctx.ui.notify(`${nextEnabled ? "Enabled" : "Disabled"} ${skill.name}. Run /reload to fully apply the change.`, "info");
 		} catch (error) {
@@ -314,18 +317,19 @@ class SkillsManagerDialog implements Focusable {
 				const name = skill.enabled ? skill.name : this.theme.fg("muted", skill.name);
 				const scope = this.theme.fg("muted", ` [${scopeLabel(skill)}]`);
 				const source = packageLabel(skill) ? this.theme.fg("muted", ` [${packageLabel(skill)}]`) : "";
+				const override = skill.projectOverride ? this.theme.fg("accent", " [override]") : "";
 				const description = this.theme.fg("dim", ` — ${skill.description}`);
-				list.addChild(new ListLineText(` ${mark} ${name}${scope}${source}${description}`, isSelected, this.theme, ellipsis));
+				list.addChild(new ListLineText(` ${mark} ${name}${scope}${source}${override}${description}`, isSelected, this.theme, ellipsis));
 			}
 		}
 		if (this.filteredSkills.length === 0) list.addChild(new Text(this.theme.fg("dim", "No skills match your search."), 1, 0));
 		root.addChild(list);
 		root.addChild(new Spacer(1));
 		const selected = this.getSelectedSkill();
-		const actions: Array<[string, string]> = [["-/=", "page"]];
-		if (selected) { actions.push(["tab", "preview"], ["ctrl+x", "enable/disable"]); if (!this.browseQuery && isDeletableSkill(selected)) actions.push(["backspace", "delete"]); }
+		const actions: Array<[string, string]> = [["-/=", "page"], ["alt+s", `scope: ${this.editScope}`]];
+		if (selected) { actions.push(["tab", "preview"], ["ctrl+x", `toggle (${this.editScope})`]); if (!this.browseQuery && isDeletableSkill(selected)) actions.push(["backspace", "delete"]); }
 		root.addChild(new Text(skillKeyHints(this.theme, actions), 1, 0));
-		const right = `${enabledCount}/${totalCount} enabled`;
+		const right = `scope: ${this.editScope} · ${enabledCount}/${totalCount} enabled`;
 		return renderFrame(this.theme, width, root.render(innerWidth), undefined, "Skills Manager", right);
 	}
 
@@ -380,6 +384,7 @@ class SkillsManagerDialog implements Focusable {
 			if (!skill) { this.exitToBrowse(); return; }
 			if (matchesKey(data, Key.escape) || matchesKey(data, Key.tab)) { this.exitToBrowse(skill.path); return; }
 			if (matchesKey(data, Key.enter)) { if (!skill.enabled) this.ctx.ui.notify("Enable this skill first with ctrl+x", "info"); else this.done(skill); return; }
+			if (matchesKey(data, Key.alt("s"))) { this.editScope = toggleScope(this.editScope); this.preview?.setScope(this.editScope); return; }
 			if (matchesKey(data, Key.alt("x")) || matchesKey(data, Key.ctrl("x"))) { void this.toggleSkill(skill); return; }
 			if (isDeletableSkill(skill) && (matchesKey(data, Key.alt("e")) || matchesKey(data, Key.ctrl("e")))) { this.openEditor(); return; }
 			if (isDeletableSkill(skill) && (matchesKey(data, Key.alt("r")) || matchesKey(data, Key.ctrl("r")))) { this.openRenameDialog(); return; }
@@ -398,6 +403,7 @@ class SkillsManagerDialog implements Focusable {
 		if (matchesKey(data, Key.tab)) { const skill = this.getSelectedSkill(); if (skill) this.openPreview(skill); return; }
 		if (matchesKey(data, Key.alt("x")) || matchesKey(data, Key.ctrl("x"))) { const skill = this.getSelectedSkill(); if (skill) void this.toggleSkill(skill); return; }
 		if (matchesKey(data, Key.backspace) && !this.browseInput.getValue()) { const skill = this.getSelectedSkill(); if (skill && isDeletableSkill(skill)) this.openDeleteConfirm(skill, "browse"); return; }
+		if (matchesKey(data, Key.alt("s"))) { this.editScope = toggleScope(this.editScope); return; }
 		if (matchesKey(data, Key.escape)) { if (this.browseInput.getValue()) { this.browseQuery = ""; this.browseInput.setValue(""); this.refreshBrowseList(); } else this.done(null); return; }
 		this.browseInput.handleInput(data); this.browseQuery = this.browseInput.getValue(); this.refreshBrowseList();
 	}

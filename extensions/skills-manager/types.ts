@@ -5,6 +5,7 @@ export type ExtensionInstallScope = "global" | "project";
 export type SkillScope = "user" | "project" | "temporary";
 export type SkillOrigin = "package" | "top-level";
 export type SkillLocation = "project" | "global";
+export type EditScope = "global" | "project";
 export type MessageTone = "dim" | "success" | "error";
 export type Mode = "browse" | "create" | "preview" | "edit" | "rename" | "delete-confirm" | "generating";
 
@@ -23,10 +24,12 @@ export interface SkillEntry {
 	content: string;
 	frontmatter?: Record<string, unknown>;
 	scope: SkillScope;
+	realScope: SkillScope;
 	origin: SkillOrigin;
 	source: string;
 	baseDir?: string;
 	enabled: boolean;
+	projectOverride: boolean;
 }
 
 export interface SkillRegistry {
@@ -96,7 +99,7 @@ export type CreateStep = CreateTextStep | CreateChoiceStep;
 export interface SkillsManagerOptions {
 	onCreate: (answers: SkillCreationAnswers, signal?: AbortSignal) => Promise<SkillEntry | null>;
 	onDelete: (skill: SkillEntry) => Promise<boolean>;
-	onToggle: (skill: SkillEntry, enabled: boolean) => Promise<void>;
+	onToggle: (skill: SkillEntry, enabled: boolean, scope: EditScope) => Promise<void>;
 	onRefresh: () => Promise<SkillRegistry>;
 }
 
